@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Yuyu</string>
+    <string name="tab_heroes">Heroes</string>
+    <string name="tab_favorites">Favorites</string>
+    <string name="tab_restore">Restore</string>
+    <string name="tab_settings">Settings</string>
+    <string name="inject">Inject</string>
+    <string name="inject_all_favorites">Inject All Favorites</string>
+    <string name="restore_all">Restore All</string>
+    <string name="no_favorites">You haven\'t favorited any skins yet.</string>
+    <string name="storage_perm_desc">Ryumoto VX requires storage permissions to modify game files and apply skins on your device.</string>
+    <string name="advanced_restore_title">Advanced Restore</string>
+    <string name="advanced_restore_desc">Restores injected skins offline by triggering the game\'s corrupted-file repair process, using the advanced algorithm.</string>
+</resources>
