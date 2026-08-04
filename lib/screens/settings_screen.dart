@@ -103,12 +103,24 @@ class SettingsScreen extends StatelessWidget {
                     Text('v5.0.0', style: TextStyle(fontSize: 12, color: context.appOnSurfaceVariant)),
                   ],
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  'Developed & maintained by Dev Sunrey',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.appPrimaryDark),
+                ),
                 const SizedBox(height: 10),
                 Text(
-                  'A community skin injector for Mobile Legends: Bang Bang. '
-                  'All skins are the property of Moonton; this tool is for '
-                  'personal use only.',
-                  style: TextStyle(fontSize: 13, color: context.appOnSurfaceVariant, height: 1.5),
+                  'Yuyu is a Mobile Legends: Bang Bang (MLBB) skin injector for Android. '
+                  'It lets you browse heroes, skills, and skins, favorite skins, and inject '
+                  'custom asset packs directly into the game.\n\n'
+                  'Features include Class Filters, Skin-to-Skin transforms, Favorites batch injection, '
+                  'Advanced Offline Restore, SHA-256 injected status verification, and Shizuku support on Android 11+.',
+                  style: TextStyle(fontSize: 13, color: context.appOnSurfaceVariant, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Disclaimer: For educational purposes only. All game data and skins belong to Moonton.',
+                  style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: context.appOnSurfaceVariant.withValues(alpha: 0.8)),
                 ),
               ],
             ),
