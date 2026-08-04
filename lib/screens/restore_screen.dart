@@ -43,6 +43,8 @@ class RestoreScreen extends StatelessWidget {
         children: [
           _EnvironmentCard(state: state),
           const SizedBox(height: 16),
+          _ShizukuGuideCard(state: state),
+          const SizedBox(height: 16),
           _Card(
             icon: Icons.restore,
             color: context.appSecondary,
@@ -260,6 +262,103 @@ class _Card extends StatelessWidget {
           Text(
             subtitle,
             style: TextStyle(fontSize: 13, color: context.appOnSurfaceVariant, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShizukuGuideCard extends StatelessWidget {
+  final AppState state;
+
+  const _ShizukuGuideCard({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final isBound = state.shizukuState == 'granted' || state.shizukuState == 'bound';
+
+    return ExpansionTile(
+      shape: RoundedCornerShape(16),
+      collapsedShape: RoundedCornerShape(16),
+      tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      backgroundColor: context.appSurface,
+      collapsedBackgroundColor: context.appSurface,
+      leading: Icon(
+        Icons.help_outline,
+        color: isBound ? context.appSuccess : context.appPrimaryDark,
+      ),
+      title: const Text(
+        'Android 11+ Shizuku Setup Guide',
+        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+      ),
+      subtitle: Text(
+        isBound ? 'Shizuku connected & active' : 'Required to access game data files on Android 11+',
+        style: TextStyle(
+          fontSize: 12,
+          color: isBound ? context.appSuccess : context.appOnSurfaceVariant,
+        ),
+      ),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Divider(height: 16),
+              const Text(
+                'Android 11+ restricts direct access to /Android/data. Shizuku grants elevated access without root:',
+                style: TextStyle(fontSize: 12, height: 1.4),
+              ),
+              const SizedBox(height: 10),
+              _stepItem('1', 'Install Shizuku app from Play Store or GitHub.'),
+              _stepItem('2', 'Enable Developer Options in phone settings.'),
+              _stepItem('3', 'Turn on Wireless Debugging in Developer Options.'),
+              _stepItem('4', 'Open Shizuku -> tap "Pairing" -> pair via Wireless Debugging code.'),
+              _stepItem('5', 'Tap "Start" in Shizuku.'),
+              _stepItem('6', 'Return to Yuyu and tap "Fix" or "Request Permission".'),
+              const SizedBox(height: 12),
+              if (!isBound)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => context.read<AppState>().requestShizukuPermission(),
+                    icon: const Icon(Icons.shield_outlined, size: 18),
+                    label: const Text('Request Shizuku Permission'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _stepItem(String number, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 18,
+            height: 18,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: AppColors.gradientStart,
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              number,
+              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 12, height: 1.3),
+            ),
           ),
         ],
       ),
