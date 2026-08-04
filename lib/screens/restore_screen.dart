@@ -279,8 +279,8 @@ class _ShizukuGuideCard extends StatelessWidget {
     final isBound = state.shizukuState == 'granted' || state.shizukuState == 'bound';
 
     return ExpansionTile(
-      shape: RoundedCornerShape(16),
-      collapsedShape: RoundedCornerShape(16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      collapsedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       backgroundColor: context.appSurface,
       collapsedBackgroundColor: context.appSurface,
