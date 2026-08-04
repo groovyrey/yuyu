@@ -1,14 +1,32 @@
-.gradle/
-.kotlin/
-build/
-*/build/
-local.properties
-*.jks
-*.keystore
-*.apk
-*.zip
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+
+# IntelliJ-based IDEs
 .idea/
 *.iml
-captures/
-.externalNativeBuild/
-.cxx/
+*.iws
+*.ipr
+
+# Flutter/Dart specific
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+
+# Android specific
+android/.gradle/
+android/captures/
+android/local.properties
+android/app/build/
+android/app/local.properties

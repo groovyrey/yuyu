@@ -1,9 +1,0 @@
-<resources>
-    <style name="Theme.RyumotoVX" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#0B1312</item>
-        <item name="android:statusBarColor">#0B1312</item>
-        <item name="android:navigationBarColor">#0B1312</item>
-        <item name="android:windowSplashScreenBackground">#0B1312</item>
-        <item name="android:colorAccent">#0D9488</item>
-    </style>
-</resources>
