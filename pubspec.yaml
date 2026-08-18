@@ -35,7 +35,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   provider: ^6.1.2
-  google_fonts: ^6.2.1
+  google_fonts: ^6.3.3
   phosphor_flutter: ^2.1.0
   http: ^1.2.2
   pointycastle: ^3.9.1
