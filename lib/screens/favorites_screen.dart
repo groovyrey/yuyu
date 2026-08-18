@@ -135,7 +135,24 @@ class _FavoriteTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   if (injecting)
-                    const LinearProgressIndicator(minHeight: 3)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LinearProgressIndicator(
+                          minHeight: 4,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Injecting...',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: context.appOnSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    )
                   else
                     Row(
                       children: [

@@ -484,11 +484,26 @@ class _SkinCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 if (injecting)
-                  const LinearProgressIndicator(minHeight: 3)
+                  Column(
+                    children: [
+                      LinearProgressIndicator(
+                        minHeight: 4,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Injecting...',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: context.appOnSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  )
                 else
                   FilledButton(
-                    // Disabled only when THIS skin is already the active one,
-                    // or when an operation is running, or no URL is available.
                     onPressed: available && !state.operation.running && !injected
                         ? () => state.injectSkin(hero, skin.name, skin.image, downloadUrl)
                         : null,

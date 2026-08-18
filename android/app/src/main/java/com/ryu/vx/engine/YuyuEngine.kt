@@ -26,7 +26,6 @@ data class GameTarget(
     val dataDir: File
 )
 
-/** Filesystem access used to reach the game assets folder. */
 sealed interface ExtractionStrategy {
     suspend fun unzip(source: File, target: File)
     suspend fun deleteFolder(path: File)
@@ -39,12 +38,19 @@ class DirectStrategy : ExtractionStrategy {
         ZipInputStream(FileInputStream(source)).use { zis ->
             var entry: ZipEntry? = zis.nextEntry
             while (entry != null) {
-                val outFile = File(target, entry.name)
-                if (entry.isDirectory) {
-                    outFile.mkdirs()
-                } else {
+                if (!entry.isDirectory) {
+                    val canonicalTarget = target.canonicalPath
+                    val outFile = File(target, entry.name).canonicalFile
+                    if (!outFile.path.startsWith(canonicalTarget)) {
+                        throw SecurityException(
+                            "Zip entry '${entry.name}' attempts path traversal"
+                        )
+                    }
                     outFile.parentFile?.mkdirs()
                     FileOutputStream(outFile).use { out -> zis.copyTo(out) }
+                } else {
+                    val dir = File(target, entry.name)
+                    dir.mkdirs()
                 }
                 zis.closeEntry()
                 entry = zis.nextEntry
@@ -106,12 +112,6 @@ class ShizukuStrategy(
     }
 }
 
-/**
- * Native file-access engine. All heavy lifting that requires Android APIs
- * (game detection, Shizuku-bridged unzip/delete/hash, downloads, repair
- * marker cleanup) lives here and is exposed to Flutter through a method
- * channel. UI, data and injection orchestration live in Dart.
- */
 object YuyuEngine {
 
     private val supportedPackages = listOf(
@@ -142,7 +142,6 @@ object YuyuEngine {
             DirectStrategy()
         }
 
-    /** Detects an installed MLBB variant, or null. */
     fun findGame(): GameTarget? {
         val ctx = appContext ?: return null
         val pm = ctx.packageManager
@@ -161,9 +160,34 @@ object YuyuEngine {
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().use { response ->
                 check(response.isSuccessful) { "HTTP ${response.code}" }
-                response.body?.byteStream()?.use { input ->
-                    dest.parentFile?.mkdirs()
-                    FileOutputStream(dest).use { output -> input.copyTo(output) }
+
+                val body = response.body
+                    ?: throw IllegalStateException("Response body is null")
+
+                val contentLength = body.contentLength()
+                dest.parentFile?.mkdirs()
+                val tmpFile = File(dest.parent, "${dest.name}.tmp")
+
+                try {
+                    FileOutputStream(tmpFile).use { output ->
+                        body.byteStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    }
+                    if (contentLength > 0 && tmpFile.length() != contentLength) {
+                        tmpFile.delete()
+                        throw IllegalStateException(
+                            "Incomplete download: expected $contentLength bytes, got ${tmpFile.length()}"
+                        )
+                    }
+                    if (tmpFile.length() == 0L) {
+                        tmpFile.delete()
+                        throw IllegalStateException("Downloaded file is empty")
+                    }
+                    tmpFile.renameTo(dest)
+                } catch (e: Exception) {
+                    tmpFile.delete()
+                    throw e
                 }
             }
         }.isSuccess
@@ -178,7 +202,6 @@ object YuyuEngine {
     suspend fun sha256Files(paths: List<File>): List<String?> =
         strategy().sha256Files(paths)
 
-    /** SHA-256 of each non-directory zip entry, computed from the zip bytes. */
     fun hashZipEntries(zip: File): List<Pair<String, String>> {
         if (!zip.isFile) return emptyList()
         val digest = MessageDigest.getInstance("SHA-256")
@@ -205,7 +228,6 @@ object YuyuEngine {
         return result
     }
 
-    /** Deletes the game's repair/verification markers for modded assets. */
     suspend fun clearRepairMarkers(game: GameTarget) {
         val configDir = game.dataDir.parentFile ?: game.dataDir
         listOf(
@@ -230,19 +252,16 @@ object YuyuEngine {
     fun openStorageSettings() {
         val ctx = appContext ?: return
 
-        // 1️⃣ Best: jump straight to this app's "All files access" toggle.
         val directIntent = android.content.Intent(
             Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
         )
             .setData(android.net.Uri.parse("package:${ctx.packageName}"))
             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        // 2️⃣ Fallback: open the global "All files access" app list.
         val listIntent = android.content.Intent(
             Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION
         ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        // 3️⃣ Last resort: open the app's info page (user can find permissions there).
         val appInfoIntent = android.content.Intent(
             Settings.ACTION_APPLICATION_DETAILS_SETTINGS
         )
