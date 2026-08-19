@@ -15,8 +15,8 @@ class DownloadResult {
 class EngineService {
   EngineService._();
 
-  static const _channel = MethodChannel('com.ryu.vx/engine');
-  static const _lifecycleChannel = EventChannel('com.ryu.vx/lifecycle');
+  static const _channel = MethodChannel('com.yuyu.dev/engine');
+  static const _lifecycleChannel = EventChannel('com.yuyu.dev/lifecycle');
 
   static Stream<String> get onResume => _lifecycleChannel
       .receiveBroadcastStream()
@@ -114,6 +114,6 @@ class EngineService {
   static Future<Directory> cacheDir() async {
     final base = await getExternalStorageDirectory();
     return Directory(
-        '${base?.path ?? '/storage/emulated/0/Android/data/com.ryu.vx/files'}/skin_cache');
+        '${base?.path ?? '/storage/emulated/0/Android/data/com.yuyu.dev/files'}/skin_cache');
   }
 }

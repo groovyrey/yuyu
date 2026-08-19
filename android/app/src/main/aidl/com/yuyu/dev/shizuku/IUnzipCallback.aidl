@@ -1,4 +1,4 @@
-package com.ryu.vx.shizuku;
+package com.yuyu.dev.shizuku;
 
 interface IUnzipCallback {
     void onProgress(int progress, String currentFile);

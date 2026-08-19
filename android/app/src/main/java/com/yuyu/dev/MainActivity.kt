@@ -1,9 +1,9 @@
-package com.ryu.vx
+package com.yuyu.dev
 
 import android.os.Bundle
-import com.ryu.vx.engine.GameTarget
-import com.ryu.vx.engine.YuyuEngine
-import com.ryu.vx.shizuku.ShizukuManager
+import com.yuyu.dev.engine.GameTarget
+import com.yuyu.dev.engine.YuyuEngine
+import com.yuyu.dev.shizuku.ShizukuManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -27,7 +27,7 @@ class MainActivity : FlutterActivity() {
 
         EventChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.ryu.vx/lifecycle"
+            "com.yuyu.dev/lifecycle"
         ).setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 resumeEventSink = events
@@ -40,7 +40,7 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.ryu.vx/engine"
+            "com.yuyu.dev/engine"
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "findGame" -> scope.launch {

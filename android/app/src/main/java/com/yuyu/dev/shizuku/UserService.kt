@@ -1,4 +1,4 @@
-package com.ryu.vx.shizuku
+package com.yuyu.dev.shizuku
 
 import android.app.Service
 import android.content.Intent

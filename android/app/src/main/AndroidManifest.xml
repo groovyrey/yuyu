@@ -68,7 +68,7 @@
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <service
-            android:name="com.ryu.vx.shizuku.UserService"
+            android:name="com.yuyu.dev.shizuku.UserService"
             android:exported="true"
             android:permission="android.permission.BIND_EXTERNAL_SERVICE" />
 

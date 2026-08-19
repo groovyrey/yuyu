@@ -1,12 +1,12 @@
-package com.ryu.vx.engine
+package com.yuyu.dev.engine
 
 import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.os.Process
 import android.provider.Settings
-import com.ryu.vx.shizuku.IUnzipService
-import com.ryu.vx.shizuku.ShizukuManager
+import com.yuyu.dev.shizuku.IUnzipService
+import com.yuyu.dev.shizuku.ShizukuManager
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -90,7 +90,7 @@ class ShizukuStrategy(
     override suspend fun unzip(source: File, target: File) {
         val service = awaitService()
         val done = CompletableDeferred<Result<Unit>>()
-        val callback = object : com.ryu.vx.shizuku.IUnzipCallback.Stub() {
+        val callback = object : com.yuyu.dev.shizuku.IUnzipCallback.Stub() {
             override fun onProgress(progress: Int, currentFile: String?) {}
             override fun onComplete() { done.complete(Result.success(Unit)) }
             override fun onError(message: String?) {

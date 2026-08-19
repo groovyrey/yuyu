@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.ryu.vx"
+    namespace = "com.yuyu.dev"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.ryu.vx"
+        applicationId = "com.yuyu.dev"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = 8
