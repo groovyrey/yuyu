@@ -25,32 +25,12 @@ class _HomeShellState extends State<HomeShell> {
     SettingsScreen(),
   ];
 
-  static const _destinations = [
-    NavigationDestination(
-      icon: Icon(Icons.auto_awesome_outlined),
-      selectedIcon: Icon(Icons.auto_awesome),
-      label: 'Heroes',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.palette_outlined),
-      selectedIcon: Icon(Icons.palette),
-      label: 'Cosmetics',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.favorite_outline),
-      selectedIcon: Icon(Icons.favorite),
-      label: 'Favorites',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.restore_outlined),
-      selectedIcon: Icon(Icons.restore),
-      label: 'Restore',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.settings_outlined),
-      selectedIcon: Icon(Icons.settings),
-      label: 'Settings',
-    ),
+  static const _drawerItems = [
+    (Icons.auto_awesome_outlined, Icons.auto_awesome, 'Heroes'),
+    (Icons.palette_outlined, Icons.palette, 'Cosmetics'),
+    (Icons.favorite_outline, Icons.favorite, 'Favorites'),
+    (Icons.restore_outlined, Icons.restore, 'Restore'),
+    (Icons.settings_outlined, Icons.settings, 'Settings'),
   ];
 
   @override
@@ -70,11 +50,11 @@ class _HomeShellState extends State<HomeShell> {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
             ),
           ),
-          for (var i = 0; i < _destinations.length; i++)
+          for (var i = 0; i < _drawerItems.length; i++)
             NavigationDrawerDestination(
-              icon: _destinations[i].icon,
-              selectedIcon: _destinations[i].selectedIcon,
-              label: _destinations[i].label,
+              icon: Icon(_drawerItems[i].$1),
+              selectedIcon: Icon(_drawerItems[i].$2),
+              label: Text(_drawerItems[i].$3),
             ),
         ],
       ),
