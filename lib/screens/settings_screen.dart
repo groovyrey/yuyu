@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../state/app_state.dart';
 import '../state/theme_controller.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_drawer_button.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -14,7 +15,7 @@ class SettingsScreen extends StatelessWidget {
     final theme = context.watch<ThemeController>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const Text('Settings'), leading: const AppDrawerButton()),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -100,7 +101,7 @@ class SettingsScreen extends StatelessWidget {
                     const SizedBox(width: 10),
                     const Text('Yuyu', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                     const SizedBox(width: 8),
-                    Text('v5.0.0', style: TextStyle(fontSize: 12, color: context.appOnSurfaceVariant)),
+                    Text('v5.1.0', style: TextStyle(fontSize: 12, color: context.appOnSurfaceVariant)),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -114,7 +115,9 @@ class SettingsScreen extends StatelessWidget {
                   'It lets you browse heroes, skills, and skins, favorite skins, and inject '
                   'custom asset packs directly into the game.\n\n'
                   'Features include Class Filters, Skin-to-Skin transforms, Favorites batch injection, '
-                  'Advanced Offline Restore, SHA-256 injected status verification, and Shizuku support on Android 11+.',
+                  'live cosmetic injection for skins, emotes, trails, recalls, eliminations, and '
+                  'respawns, Advanced Offline Restore, SHA-256 injected status verification, '
+                  'and Shizuku support on Android 11+.',
                   style: TextStyle(fontSize: 13, color: context.appOnSurfaceVariant, height: 1.4),
                 ),
                 const SizedBox(height: 12),

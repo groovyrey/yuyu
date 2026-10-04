@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_drawer_button.dart';
 import '../widgets/app_image.dart';
 import 'hero_detail_screen.dart';
 
@@ -67,6 +68,7 @@ class _HeroesScreenState extends State<HeroesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Heroes'),
+        leading: const AppDrawerButton(),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),

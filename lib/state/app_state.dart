@@ -49,6 +49,11 @@ class AppState extends ChangeNotifier {
   List<InjectedSkin> _manifest = [];
   List<History> _history = [];
   Set<String> _injected = {};
+  Set<String> _injectedCosmetics = {};
+
+  final Map<CosmeticCategory, List<CosmeticItem>> _cosmetics = {};
+  final Map<CosmeticCategory, bool> _cosmeticLoading = {};
+  final Map<CosmeticCategory, String?> _cosmeticError = {};
 
   OperationState _operation = const OperationState();
   OperationState get operation => _operation;
@@ -69,6 +74,18 @@ class AppState extends ChangeNotifier {
   GameTarget? get game => _game;
   bool get storageGranted => _storageGranted;
   String get shizukuState => _shizukuState;
+
+  List<CosmeticItem> cosmetics(CosmeticCategory category) =>
+      _cosmetics[category] ?? const [];
+
+  bool isCosmeticLoading(CosmeticCategory category) =>
+      _cosmeticLoading[category] ?? false;
+
+  String? cosmeticError(CosmeticCategory category) =>
+      _cosmeticError[category];
+
+  bool isCosmeticInjected(CosmeticCategory category, String title) =>
+      _injectedCosmetics.contains(_cosmeticKey(category, title));
 
   bool get isReady {
     if (_game == null || !_storageGranted) return false;
@@ -106,6 +123,10 @@ class AppState extends ChangeNotifier {
     _history = _decodeList(prefs.getString('history'))
         .map((e) => History.fromJson(e))
         .toList();
+    _injectedCosmetics = _decodeList(prefs.getString('injected_cosmetics'))
+        .map((e) => e['key'] as String? ?? '')
+        .where((k) => k.isNotEmpty)
+        .toSet();
   }
 
   List<Map<String, dynamic>> _decodeList(String? raw) {
@@ -580,6 +601,134 @@ class AppState extends ChangeNotifier {
     await prefs.setString(
       'history',
       jsonEncode(_history.map((h) => h.toJson()).toList()),
+    );
+  }
+
+  String _cosmeticKey(CosmeticCategory category, String title) =>
+      '${category.id}|$title';
+
+  Future<void> loadCosmetics(CosmeticCategory category) async {
+    if (_cosmetics.containsKey(category)) return;
+    await _fetchCosmeticsOf(category);
+  }
+
+  Future<void> reloadCosmetics(CosmeticCategory category) async {
+    _cosmetics.remove(category);
+    await _fetchCosmeticsOf(category);
+  }
+
+  Future<void> _fetchCosmeticsOf(CosmeticCategory category) async {
+    if (_cosmeticLoading[category] ?? false) return;
+    _cosmeticLoading[category] = true;
+    _cosmeticError[category] = null;
+    notifyListeners();
+    try {
+      _cosmetics[category] = await _fetchFromApi(category);
+    } catch (e) {
+      _cosmeticError[category] = e.toString();
+    }
+    _cosmeticLoading[category] = false;
+    notifyListeners();
+  }
+
+  Future<List<CosmeticItem>> _fetchFromApi(CosmeticCategory category) =>
+      switch (category) {
+        CosmeticCategory.newlyAdded => LuminaApi.fetchNewlyAdded(),
+        CosmeticCategory.emotes => LuminaApi.fetchEmotes(),
+        CosmeticCategory.trails => LuminaApi.fetchTrails(),
+        CosmeticCategory.recalls => LuminaApi.fetchRecalls(),
+        CosmeticCategory.eliminations => LuminaApi.fetchEliminations(),
+        CosmeticCategory.respawns => LuminaApi.fetchRespaws(),
+      };
+
+  String _sanitizeFileName(String name) =>
+      name.replaceAll(RegExp(r'[^A-Za-z0-9._\-]'), '_');
+
+  Future<void> _deleteFile(File file) async {
+    try {
+      if (file.existsSync()) await file.delete();
+    } catch (_) {}
+  }
+
+  Future<void> injectCosmetic(
+      CosmeticCategory category, CosmeticItem item) async {
+    if (_operation.running) return;
+    if (item.sc.isEmpty) {
+      _operation = OperationState(
+          running: false,
+          message: 'Failed: no download URL for ${item.title}');
+      notifyListeners();
+      return;
+    }
+    final game = await EngineService.findGame();
+    if (game == null) {
+      _operation = OperationState(
+          running: false, message: 'Failed: Mobile Legends is not installed');
+      notifyListeners();
+      return;
+    }
+
+    _operation = OperationState(
+        running: true, message: 'Injecting ${item.title}...', total: 1);
+    notifyListeners();
+    try {
+      await _acquireOpLock();
+      try {
+        final cache = await EngineService.cacheDir();
+        await cache.create(recursive: true);
+        final zip = File(
+            '${cache.path}/${category.id}_${_sanitizeFileName(item.title)}.zip');
+        if (!zip.existsSync() || zip.lengthSync() == 0) {
+          final dl = await EngineService.downloadFile(item.sc, zip.path);
+          if (!dl.ok) {
+            await _deleteFile(zip);
+            throw 'Download failed for ${item.title}'
+                '${dl.error != null ? ': ${dl.error}' : ''}';
+          }
+          if (!zip.existsSync() || zip.lengthSync() == 0) {
+            await _deleteFile(zip);
+            throw 'Download produced empty file for ${item.title}';
+          }
+        }
+        final uz = await EngineService.unzip(zip.path, game.assetsDir);
+        if (!uz.ok) {
+          await _deleteFile(zip);
+          throw 'Extraction failed for ${item.title}'
+              '${uz.error != null ? ': ${uz.error}' : ''}';
+        }
+        _injectedCosmetics = {..._injectedCosmetics, _cosmeticKey(category, item.title)};
+        await _saveInjectedCosmetics();
+        _operation = OperationState(
+            running: false,
+            message: 'Injected: ${item.title}',
+            done: 1,
+            total: 1);
+      } finally {
+        _releaseOpLock();
+      }
+    } catch (e) {
+      _operation = OperationState(running: false, message: 'Failed: ${_msg(e)}');
+    }
+    notifyListeners();
+  }
+
+  Future<void> restoreCosmetic(
+      CosmeticCategory category, CosmeticItem item) async {
+    final key = _cosmeticKey(category, item.title);
+    if (!_injectedCosmetics.contains(key)) return;
+    _injectedCosmetics = {..._injectedCosmetics}..remove(key);
+    await _saveInjectedCosmetics();
+    _operation = OperationState(
+        running: false, message: 'Removed injected mark: ${item.title}');
+    notifyListeners();
+  }
+
+  Future<void> _saveInjectedCosmetics() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'injected_cosmetics',
+      jsonEncode(
+          _injectedCosmetics.map((k) => {'key': k}).toList()),
     );
   }
 

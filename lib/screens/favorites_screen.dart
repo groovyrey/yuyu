@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_drawer_button.dart';
 import '../widgets/app_image.dart';
 
 class FavoritesScreen extends StatelessWidget {
@@ -41,6 +42,7 @@ class FavoritesScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Favorites'),
+        leading: const AppDrawerButton(),
         actions: [
           if (favorites.isNotEmpty && !running)
             TextButton.icon(

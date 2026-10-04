@@ -196,6 +196,20 @@ class CosmeticItem {
       );
 }
 
+enum CosmeticCategory {
+  newlyAdded('newly', 'Newly added'),
+  emotes('emote', 'Emotes'),
+  trails('trail', 'Trails'),
+  recalls('recall', 'Recalls'),
+  eliminations('elimination', 'Eliminations'),
+  respawns('respawn', 'Respawns');
+
+  const CosmeticCategory(this.id, this.label);
+
+  final String id;
+  final String label;
+}
+
 class Favorite {
   final String heroName;
   final int heroId;

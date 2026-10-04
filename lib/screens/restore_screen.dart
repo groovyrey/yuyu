@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_drawer_button.dart';
 
 class RestoreScreen extends StatelessWidget {
   const RestoreScreen({super.key});
@@ -37,7 +38,7 @@ class RestoreScreen extends StatelessWidget {
     final running = state.operation.running;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Restore')),
+      appBar: AppBar(title: const Text('Restore'), leading: const AppDrawerButton()),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

@@ -17,7 +17,7 @@ class LuminaApi {
   static const _trail = '/trail-bytes.txt';
   static const _recall = '/recall-bytes.txt';
   static const _elimination = '/elimination-bytes.txt';
-  static const _respawn = '/luminadarespawn-bytes.txt';
+  static const _respawn = '/respawn-bytes.txt';
 
   static final _client = http.Client();
   static const _timeout = Duration(seconds: 30);
