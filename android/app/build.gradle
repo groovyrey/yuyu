@@ -1,3 +1,9 @@
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 plugins {
     id "com.android.application"
     id "kotlin-android"
@@ -20,17 +26,29 @@ android {
         jvmTarget = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                storeType 'PKCS12'
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.yuyu.dev"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
-        versionCode = 8
-        versionName = "5.0.0"
+        versionCode flutter.versionCode
+        versionName flutter.versionName
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 
