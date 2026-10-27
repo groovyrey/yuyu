@@ -103,6 +103,7 @@ class AppState extends ChangeNotifier {
     _loadHeroes();
     await refreshEnv();
     refreshInjectedStatus();
+    cleanupCache();
 
     _resumeSub = EngineService.onResume.listen((_) => refreshEnv());
   }
@@ -229,6 +230,40 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  Future<void> cleanupCache({int maxFiles = 50, int maxAgeDays = 7}) async {
+    try {
+      final cache = await EngineService.cacheDir();
+      if (!await cache.exists()) return;
+      final files = cache.listSync().whereType<File>().toList();
+      final now = DateTime.now();
+      for (final f in files) {
+        try {
+          final stat = f.statSync();
+          final age = now.difference(stat.modified).inDays;
+          if (age > maxAgeDays) {
+            await f.delete();
+            continue;
+          }
+        } catch (_) {}
+      }
+      final remaining = cache.listSync().whereType<File>().toList();
+      if (remaining.length > maxFiles) {
+        remaining.sort((a, b) {
+          try {
+            return a.statSync().modified.compareTo(b.statSync().modified);
+          } catch (_) {
+            return 0;
+          }
+        });
+        for (var i = 0; i < remaining.length - maxFiles; i++) {
+          try {
+            await remaining[i].delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _acquireOpLock() async {
     while (_opLock != null) {
       await _opLock!.future;
@@ -260,6 +295,20 @@ class AppState extends ChangeNotifier {
       if (!zip.existsSync() || zip.lengthSync() == 0) {
         await _deleteCachedZip(zip);
         throw 'Download produced empty file for ${fav.skinName}';
+      }
+      // Validate zip signature
+      try {
+        final raf = await zip.open();
+        final sig = await raf.read(4);
+        await raf.close();
+        if (!(sig.length == 4 && sig[0] == 0x50 && sig[1] == 0x4B)) {
+          await _deleteCachedZip(zip);
+          throw 'Downloaded file is not a valid zip for ${fav.skinName}';
+        }
+      } catch (e) {
+        if (e.toString().contains('valid zip')) rethrow;
+        await _deleteCachedZip(zip);
+        throw 'Invalid zip file for ${fav.skinName}';
       }
     }
 
@@ -688,6 +737,19 @@ class AppState extends ChangeNotifier {
           if (!zip.existsSync() || zip.lengthSync() == 0) {
             await _deleteFile(zip);
             throw 'Download produced empty file for ${item.title}';
+          }
+          try {
+            final raf = await zip.open();
+            final sig = await raf.read(4);
+            await raf.close();
+            if (!(sig.length == 4 && sig[0] == 0x50 && sig[1] == 0x4B)) {
+              await _deleteFile(zip);
+              throw 'Downloaded file is not a valid zip for ${item.title}';
+            }
+          } catch (e) {
+            if (e.toString().contains('valid zip')) rethrow;
+            await _deleteFile(zip);
+            throw 'Invalid zip file for ${item.title}';
           }
         }
         final uz = await EngineService.unzip(zip.path, game.assetsDir);

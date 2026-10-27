@@ -17,6 +17,7 @@ import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -35,21 +36,47 @@ sealed interface ExtractionStrategy {
 class DirectStrategy : ExtractionStrategy {
     override suspend fun unzip(source: File, target: File) = withContext(Dispatchers.IO) {
         target.mkdirs()
+        val canonicalTarget = target.canonicalPath
+        val maxEntries = 10_000
+        val maxTotalUncompressed = 512L * 1024 * 1024 // 512 MB
+        var entries = 0
+        var totalUncompressed: Long = 0
         ZipInputStream(FileInputStream(source)).use { zis ->
             var entry: ZipEntry? = zis.nextEntry
             while (entry != null) {
+                entries++
+                if (entries > maxEntries) {
+                    throw SecurityException("Too many zip entries")
+                }
+                val entryName = entry.name
+                if (entryName.contains("..") || entryName.startsWith("/") || entryName.startsWith("\\") || File(entryName).isAbsolute) {
+                    throw SecurityException("Illegal zip entry: $entryName")
+                }
                 if (!entry.isDirectory) {
-                    val canonicalTarget = target.canonicalPath
-                    val outFile = File(target, entry.name).canonicalFile
-                    if (!outFile.path.startsWith(canonicalTarget)) {
+                    val outFile = File(target, entryName).canonicalFile
+                    if (!outFile.path.startsWith(canonicalTarget + File.separator) && outFile.path != canonicalTarget) {
                         throw SecurityException(
-                            "Zip entry '${entry.name}' attempts path traversal"
+                            "Zip entry '${entryName}' attempts path traversal"
                         )
                     }
                     outFile.parentFile?.mkdirs()
-                    FileOutputStream(outFile).use { out -> zis.copyTo(out) }
+                    FileOutputStream(outFile).use { out ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var read = zis.read(buffer)
+                        while (read > 0) {
+                            totalUncompressed += read
+                            if (totalUncompressed > maxTotalUncompressed) {
+                                throw SecurityException("Zip exceeds maximum uncompressed size")
+                            }
+                            out.write(buffer, 0, read)
+                            read = zis.read(buffer)
+                        }
+                    }
                 } else {
-                    val dir = File(target, entry.name)
+                    val dir = File(target, entryName).canonicalFile
+                    if (!dir.path.startsWith(canonicalTarget + File.separator) && dir.path != canonicalTarget) {
+                        throw SecurityException("Zip entry '$entryName' attempts path traversal")
+                    }
                     dir.mkdirs()
                 }
                 zis.closeEntry()
@@ -98,17 +125,24 @@ class ShizukuStrategy(
             }
         }
         service.unzip(source.absolutePath, target.absolutePath, callback)
-        done.await().getOrThrow()
+        val result = withTimeoutOrNull(300_000L) {
+            done.await()
+        } ?: throw IllegalStateException("Shizuku unzip timed out")
+        result.getOrThrow()
     }
 
     override suspend fun deleteFolder(path: File) {
-        awaitService().deleteFolder(path.absolutePath)
+        withTimeoutOrNull(60_000L) {
+            awaitService().deleteFolder(path.absolutePath)
+        } ?: throw IllegalStateException("Shizuku delete timed out")
     }
 
     override suspend fun sha256Files(paths: List<File>): List<String?> {
-        val service = awaitService()
-        val result = service.sha256Files(paths.map { it.absolutePath }.toTypedArray())
-        return result?.toList() ?: List(paths.size) { null }
+        return withTimeoutOrNull(120_000L) {
+            val service = awaitService()
+            val result = service.sha256Files(paths.map { it.absolutePath }.toTypedArray())
+            result?.toList() ?: List(paths.size) { null }
+        } ?: throw IllegalStateException("Shizuku sha256 timed out")
     }
 }
 
@@ -155,7 +189,20 @@ object YuyuEngine {
     }
 
     suspend fun downloadFile(url: String, dest: File): Boolean = withContext(Dispatchers.IO) {
-        if (dest.exists() && dest.length() > 0) return@withContext true
+        if (dest.exists() && dest.length() > 0) {
+            // Validate zip signature if it looks like a zip
+            if (runCatching {
+                    FileInputStream(dest).use { fis ->
+                        val sig = ByteArray(4)
+                        if (fis.read(sig) != 4) return@runCatching false
+                        sig[0] == 0x50.toByte() && sig[1] == 0x4B.toByte()
+                    }
+                }.getOrDefault(false)) {
+                return@withContext true
+            } else if (dest.length() > 0) {
+                // Try to re-download if invalid
+            }
+        }
         runCatching {
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().use { response ->
@@ -165,13 +212,26 @@ object YuyuEngine {
                     ?: throw IllegalStateException("Response body is null")
 
                 val contentLength = body.contentLength()
+                if (contentLength > 0 && contentLength > 200L * 1024 * 1024) {
+                    throw IllegalStateException("File too large")
+                }
                 dest.parentFile?.mkdirs()
                 val tmpFile = File(dest.parent, "${dest.name}.tmp")
 
                 try {
                     FileOutputStream(tmpFile).use { output ->
                         body.byteStream().use { input ->
-                            input.copyTo(output)
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            var total: Long = 0
+                            var read = input.read(buffer)
+                            while (read > 0) {
+                                total += read
+                                if (total > 200L * 1024 * 1024) {
+                                    throw IllegalStateException("File too large")
+                                }
+                                output.write(buffer, 0, read)
+                                read = input.read(buffer)
+                            }
                         }
                     }
                     if (contentLength > 0 && tmpFile.length() != contentLength) {
@@ -184,6 +244,17 @@ object YuyuEngine {
                         tmpFile.delete()
                         throw IllegalStateException("Downloaded file is empty")
                     }
+                    // Validate zip signature
+                    val validZip = FileInputStream(tmpFile).use { fis ->
+                        val sig = ByteArray(4)
+                        if (fis.read(sig) != 4) return@use false
+                        sig[0] == 0x50.toByte() && sig[1] == 0x4B.toByte()
+                    }
+                    if (!validZip) {
+                        tmpFile.delete()
+                        throw IllegalStateException("Downloaded file is not a valid zip")
+                    }
+                    if (dest.exists()) dest.delete()
                     tmpFile.renameTo(dest)
                 } catch (e: Exception) {
                     tmpFile.delete()
@@ -204,12 +275,32 @@ object YuyuEngine {
 
     fun hashZipEntries(zip: File): List<Pair<String, String>> {
         if (!zip.isFile) return emptyList()
+        // Basic zip signature check
+        runCatching {
+            FileInputStream(zip).use { fis ->
+                val sig = ByteArray(4)
+                if (fis.read(sig) != 4) return emptyList()
+                if (!(sig[0] == 0x50.toByte() && sig[1] == 0x4B.toByte() && (sig[2] == 0x03.toByte() || sig[2] == 0x05.toByte() || sig[2] == 0x07.toByte()) && (sig[3] == 0x04.toByte() || sig[3] == 0x06.toByte() || sig[3] == 0x08.toByte()))) {
+                    return emptyList()
+                }
+            }
+        }
         val digest = MessageDigest.getInstance("SHA-256")
         val result = mutableListOf<Pair<String, String>>()
+        val maxEntries = 10_000
+        var entries = 0
         runCatching {
             ZipInputStream(FileInputStream(zip)).use { zis ->
                 var entry: ZipEntry? = zis.nextEntry
                 while (entry != null) {
+                    entries++
+                    if (entries > maxEntries) break
+                    val entryName = entry.name
+                    if (entryName.contains("..") || entryName.startsWith("/") || entryName.startsWith("\\") || File(entryName).isAbsolute) {
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                        continue
+                    }
                     if (!entry.isDirectory) {
                         digest.reset()
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -218,7 +309,7 @@ object YuyuEngine {
                             digest.update(buffer, 0, read)
                             read = zis.read(buffer)
                         }
-                        result.add(entry.name to digest.digest().joinToString("") { "%02x".format(it) })
+                        result.add(entryName to digest.digest().joinToString("") { "%02x".format(it) })
                     }
                     zis.closeEntry()
                     entry = zis.nextEntry

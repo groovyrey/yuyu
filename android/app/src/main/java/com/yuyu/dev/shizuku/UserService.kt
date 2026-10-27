@@ -34,6 +34,7 @@ class UserService : Service() {
                 return
             }
 
+            val canonicalTarget = runCatching { targetDir.canonicalPath }.getOrNull() ?: targetDir.absolutePath
             val total = srcFile.length()
             var processed = 0L
 
@@ -42,13 +43,20 @@ class UserService : Service() {
                     var entry: ZipEntry? = zis.nextEntry
                     while (entry != null) {
                         val current = entry
-                        val outFile = File(targetDir, current.name)
+                        val entryName = current.name
+                        // Prevent zip slip / path traversal
+                        if (entryName.contains("..") || entryName.startsWith("/") || entryName.startsWith("\\") || File(entryName).isAbsolute) {
+                            throw SecurityException("Illegal zip entry: $entryName")
+                        }
+                        val outFile = File(targetDir, entryName).canonicalFile
+                        if (!outFile.path.startsWith(canonicalTarget + File.separator) && outFile.path != canonicalTarget) {
+                            throw SecurityException("Zip entry '$entryName' attempts path traversal")
+                        }
                         if (current.isDirectory) {
                             outFile.mkdirs()
                         } else {
                             outFile.parentFile?.mkdirs()
                             FileOutputStream(outFile).use { out ->
-                                val entryName = current.name
                                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                                 var read = zis.read(buffer)
                                 while (read > 0) {

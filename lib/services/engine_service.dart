@@ -53,28 +53,35 @@ class EngineService {
   static Future<DownloadResult> downloadFile(String url, String path) async {
     try {
       final result = await _channel
-          .invokeMethod<bool>('downloadFile', {'url': url, 'path': path});
+          .invokeMethod<bool>('downloadFile', {'url': url, 'path': path})
+          .timeout(const Duration(minutes: 5));
       if (result == true) {
         return const DownloadResult(ok: true);
       }
       return const DownloadResult(ok: false, error: 'Native download returned false');
     } on PlatformException catch (e) {
       return DownloadResult(ok: false, error: e.message);
+    } catch (e) {
+      return DownloadResult(ok: false, error: e.toString());
     }
   }
 
   static Future<DownloadResult> unzip(String source, String target) async {
     try {
-      final result = await _channel.invokeMethod<bool>(
-        'unzip',
-        {'source': source, 'target': target},
-      );
+      final result = await _channel
+          .invokeMethod<bool>(
+            'unzip',
+            {'source': source, 'target': target},
+          )
+          .timeout(const Duration(minutes: 5));
       if (result == true) {
         return const DownloadResult(ok: true);
       }
       return const DownloadResult(ok: false, error: 'Native unzip returned false');
     } on PlatformException catch (e) {
       return DownloadResult(ok: false, error: e.message);
+    } catch (e) {
+      return DownloadResult(ok: false, error: e.toString());
     }
   }
 
@@ -87,9 +94,11 @@ class EngineService {
   }
 
   static Future<List<String?>> sha256Files(List<String> paths) async {
-    final result = await _channel.invokeMethod<List<dynamic>>(
-        'sha256Files', {'paths': paths});
-    return result?.map((e) => e as String?).toList() ?? [];
+    if (paths.isEmpty) return [];
+    final result = await _channel
+        .invokeMethod<List<dynamic>>('sha256Files', {'paths': paths})
+        .timeout(const Duration(minutes: 2));
+    return result?.map((e) => e as String?).toList() ?? List.filled(paths.length, null);
   }
 
   static Future<List<(String, String)>> hashZipEntries(String path) async {
