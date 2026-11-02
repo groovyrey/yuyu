@@ -10,12 +10,14 @@ class RestoreScreen extends StatelessWidget {
 
   Future<void> _confirmAdvancedRestore(BuildContext context) async {
     final state = context.read<AppState>();
+    final count = state.restoreTargetCount;
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Advanced restore?'),
         content: Text(
-            'Clears repair markers and re-applies ${state.favorites.length} cached favorite skin(s). '
+            'Clears repair markers and re-injects the $count currently injected skin(s). '
+            'Cached archives are reused when valid, otherwise they are downloaded again. '
             'The game must be closed while this runs. Continue?'),
         actions: [
           TextButton(
@@ -29,7 +31,7 @@ class RestoreScreen extends StatelessWidget {
         ],
       ),
     );
-    if (ok == true) state.advancedRestoreAllFavorites();
+    if (ok == true) state.advancedRestore();
   }
 
   @override
@@ -50,26 +52,14 @@ class RestoreScreen extends StatelessWidget {
             icon: Icons.restore,
             color: context.appSecondary,
             title: 'Advanced restore',
-            subtitle: 'Clears the game repair markers then re-injects every cached '
-                'favorite skin. Use this after the game repaired or reverted skins.',
+            subtitle: 'Clears the game repair markers then re-injects every skin '
+                'currently marked as active. Use this after the game repaired or '
+                'reverted skins.',
             trailing: FilledButton(
-              onPressed: state.favorites.isEmpty || running
+              onPressed: state.restoreTargetCount == 0 || running
                   ? null
                   : () => _confirmAdvancedRestore(context),
               child: const Text('Run'),
-            ),
-          ),
-          const SizedBox(height: 16),
-          _Card(
-            icon: Icons.manage_search,
-            color: context.appPrimary,
-            title: 'Check injected skins',
-            subtitle: 'Re-verify which skins are still present in the game files '
-                'and refresh the injected badge.',
-            trailing: TextButton.icon(
-              onPressed: running ? null : () => state.refreshInjectedStatus(),
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Check'),
             ),
           ),
           const SizedBox(height: 24),

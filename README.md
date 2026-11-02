@@ -11,8 +11,8 @@ Yuyu is a Mobile Legends: Bang Bang (MLBB) skin injector for Android. It lets yo
 - **Skins catalog** — view every skin per hero, with images, and inject the ones you want
 - **Skin-to-Skin transforms** — morph an owned skin into another with a single tap
 - **Favorites** — star skins and inject them all in one go from the Favorites tab
-- **Advanced Restore** — offline restore that triggers the game's asset-repair process
-- **Injected-status checker** — verifies a skin is still actually applied to the game files (SHA-256 based); already-injected skins show "Injected ✓" and can't be re-injected
+- **Advanced Restore** - clears the game's repair markers and re-injects every skin currently marked active
+- **Step progress** - download, validation, extraction, and cleanup are reported per skin instead of a spinner
 - **Shizuku support** — elevated file access on Android 11+ so the app can modify the game's sandboxed data folder
 
 ## Requirements
@@ -25,7 +25,7 @@ Yuyu is a Mobile Legends: Bang Bang (MLBB) skin injector for Android. It lets yo
 
 Skins are downloaded from the Yuyu data server, decrypted (AES-256-CBC), and their asset packs (`Art/android/.../*.unity3d`) are extracted into the game's `assets` folder. The engine can reach that folder directly on older Android versions, or through a Shizuku user service on newer ones.
 
-When a skin is injected, Yuyu records the SHA-256 hash of every extracted file. Later checks compare the current game files against those hashes to know whether a skin is still applied.
+When a skin is injected, Yuyu records the files it wrote for that hero. The Heroes and Favorites tabs use that record to show which skin is active, and the next injection removes files that belonged to the previous skin. If extraction fails partway through, the files written by that attempt are deleted so the game is not left with a mix of skins.
 
 ## Usage
 

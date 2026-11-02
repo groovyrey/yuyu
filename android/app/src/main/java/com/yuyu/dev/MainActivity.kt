@@ -105,21 +105,29 @@ class MainActivity : FlutterActivity() {
                         .onFailure { result.error("DELETE", it.message, null) }
                 }
 
-                "sha256Files" -> scope.launch {
+                "deleteFiles" -> scope.launch {
                     val paths = call.argument<List<String>>("paths") ?: emptyList()
-                    runCatching { YuyuEngine.sha256Files(paths.map(::File)) }
-                        .onSuccess { result.success(it) }
-                        .onFailure { result.error("SHA256", it.message, null) }
+                    if (paths.isEmpty()) {
+                        result.success(true)
+                        return@launch
+                    }
+                    runCatching { YuyuEngine.deleteFiles(paths.map(::File)) }
+                        .onSuccess { result.success(true) }
+                        .onFailure { result.error("DELETE", it.message, null) }
                 }
 
-                "hashZipEntries" -> scope.launch {
+                "listZipEntries" -> scope.launch {
                     val path = call.argument<String>("path") ?: ""
+                    if (path.isBlank()) {
+                        result.error("ARGS", "path is required", null)
+                        return@launch
+                    }
                     runCatching {
-                        YuyuEngine.hashZipEntries(File(path))
-                            .map { listOf(it.first, it.second) }
+                        YuyuEngine.listZipEntries(File(path))
+                            .map { listOf<Any>(it.first, it.second) }
                     }
                         .onSuccess { result.success(it) }
-                        .onFailure { result.error("ZIPHASH", it.message, null) }
+                        .onFailure { result.error("ZIP", it.message, null) }
                 }
 
                 "clearRepairMarkers" -> scope.launch {

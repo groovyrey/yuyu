@@ -18,8 +18,8 @@ class OperationBanner extends StatelessWidget {
         : (op.message.startsWith('Failed')
             ? context.appError
             : context.appSuccess);
-    final hasProgress = running && op.total > 0;
-    final fraction = hasProgress ? (op.done / op.total).clamp(0.0, 1.0) : 0.0;
+    final showProgress = running && (op.stepTotal > 0 || op.total > 1);
+    final fraction = op.overallFraction;
 
     return Material(
       color: color.withValues(alpha: running ? 0.10 : 0.12),
@@ -50,7 +50,7 @@ class OperationBanner extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (hasProgress)
+                  if (showProgress)
                     Padding(
                       padding: const EdgeInsets.only(left: 8),
                       child: Text(
@@ -74,7 +74,7 @@ class OperationBanner extends StatelessWidget {
                   ],
                 ],
               ),
-              if (hasProgress) ...[
+              if (showProgress) ...[
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
@@ -86,13 +86,42 @@ class OperationBanner extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  '${op.done} / ${op.total}',
-                  style: TextStyle(
-                    color: color.withValues(alpha: 0.7),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  children: [
+                    if (op.stepLabel.isNotEmpty)
+                      Expanded(
+                        child: Text(
+                          op.stepLabel,
+                          style: TextStyle(
+                            color: color.withValues(alpha: 0.8),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      )
+                    else
+                      const Spacer(),
+                    if (op.stepTotal > 0)
+                      Text(
+                        '${op.step} / ${op.stepTotal}',
+                        style: TextStyle(
+                          color: color.withValues(alpha: 0.7),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    if (op.total > 1) ...[
+                      Text(
+                        '  ${op.done} / ${op.total} skins',
+                        style: TextStyle(
+                          color: color.withValues(alpha: 0.7),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ],

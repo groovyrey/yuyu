@@ -395,10 +395,11 @@ class _SkinCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final isFavorite = state.isFavorite(hero.heroInfo.id, skin.name);
-    final injected = state.injected.contains('${hero.heroInfo.id}:${skin.name}');
+    final injected = state.isActiveSkin(hero.heroInfo.id, skin.name);
     // True if THIS specific skin is the active one for this hero.
     // Any other skin for the same hero will have injected==false and can be re-injected.
-    final injecting = state.operation.running && state.operation.message.contains(skin.name);
+    final injecting = state.operation.running &&
+        state.operation.activeKey == '${hero.heroInfo.id}:${skin.name}';
     final available = downloadUrl.isNotEmpty;
 
     return Container(
@@ -487,12 +488,15 @@ class _SkinCard extends StatelessWidget {
                   Column(
                     children: [
                       LinearProgressIndicator(
+                        value: state.operation.stepFraction,
                         minHeight: 4,
                         borderRadius: BorderRadius.circular(2),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Injecting...',
+                        state.operation.stepLabel.isEmpty
+                            ? 'Injecting...'
+                            : state.operation.stepLabel,
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 11,
@@ -511,7 +515,7 @@ class _SkinCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                     ),
-                    child: Text(injected ? 'Active ✓' : 'Inject'),
+                    child: Text(injected ? 'Active' : 'Inject'),
                   ),
               ],
             ),
@@ -534,7 +538,8 @@ class _SkinToSkinCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final label = '${from?.name ?? '?'} → ${to?.name ?? '?'}';
-    final injecting = state.operation.running && state.operation.message.contains('→');
+    final injecting = state.operation.running &&
+        state.operation.activeKey == '${hero.heroInfo.id}:$label';
     final enabled = sc.isNotEmpty && !state.operation.running && from != null && to != null;
 
     return Container(
@@ -563,7 +568,27 @@ class _SkinToSkinCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 if (injecting)
-                  const LinearProgressIndicator(minHeight: 3)
+                  Column(
+                    children: [
+                      LinearProgressIndicator(
+                        value: state.operation.stepFraction,
+                        minHeight: 3,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        state.operation.stepLabel.isEmpty
+                            ? 'Injecting...'
+                            : state.operation.stepLabel,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: context.appOnSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  )
                 else
                   FilledButton(
                     onPressed: enabled

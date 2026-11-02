@@ -10,10 +10,8 @@ import com.yuyu.dev.shizuku.ShizukuManager
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
-import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,57 +28,68 @@ data class GameTarget(
 sealed interface ExtractionStrategy {
     suspend fun unzip(source: File, target: File)
     suspend fun deleteFolder(path: File)
-    suspend fun sha256Files(paths: List<File>): List<String?>
+    suspend fun deleteFiles(paths: List<File>)
 }
 
 class DirectStrategy : ExtractionStrategy {
     override suspend fun unzip(source: File, target: File) = withContext(Dispatchers.IO) {
+        if (!source.isFile || source.length() <= 0L) {
+            throw IllegalStateException("Source file not found or empty")
+        }
         target.mkdirs()
         val canonicalTarget = target.canonicalPath
         val maxEntries = 10_000
         val maxTotalUncompressed = 512L * 1024 * 1024 // 512 MB
         var entries = 0
-        var totalUncompressed: Long = 0
-        ZipInputStream(FileInputStream(source)).use { zis ->
-            var entry: ZipEntry? = zis.nextEntry
-            while (entry != null) {
+        var totalUncompressed = 0L
+        // ZipFile reads the central directory first, so a truncated or
+        // incomplete archive fails here instead of extracting a partial set.
+        ZipFile(source).use { zf ->
+            val archiveEntries = zf.entries()
+            while (archiveEntries.hasMoreElements()) {
+                val entry = archiveEntries.nextElement()
                 entries++
                 if (entries > maxEntries) {
                     throw SecurityException("Too many zip entries")
                 }
                 val entryName = entry.name
-                if (entryName.contains("..") || entryName.startsWith("/") || entryName.startsWith("\\") || File(entryName).isAbsolute) {
+                if (entryName.contains("..") || entryName.startsWith("/") ||
+                    entryName.startsWith("\\") || File(entryName).isAbsolute
+                ) {
                     throw SecurityException("Illegal zip entry: $entryName")
                 }
-                if (!entry.isDirectory) {
-                    val outFile = File(target, entryName).canonicalFile
-                    if (!outFile.path.startsWith(canonicalTarget + File.separator) && outFile.path != canonicalTarget) {
-                        throw SecurityException(
-                            "Zip entry '${entryName}' attempts path traversal"
-                        )
-                    }
-                    outFile.parentFile?.mkdirs()
+                val outFile = File(target, entryName).canonicalFile
+                if (!outFile.path.startsWith(canonicalTarget + File.separator) &&
+                    outFile.path != canonicalTarget
+                ) {
+                    throw SecurityException("Zip entry '$entryName' attempts path traversal")
+                }
+                if (entry.isDirectory) {
+                    outFile.mkdirs()
+                    continue
+                }
+                outFile.parentFile?.mkdirs()
+                var written = 0L
+                zf.getInputStream(entry).use { input ->
                     FileOutputStream(outFile).use { out ->
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var read = zis.read(buffer)
+                        var read = input.read(buffer)
                         while (read > 0) {
                             totalUncompressed += read
                             if (totalUncompressed > maxTotalUncompressed) {
                                 throw SecurityException("Zip exceeds maximum uncompressed size")
                             }
                             out.write(buffer, 0, read)
-                            read = zis.read(buffer)
+                            written += read
+                            read = input.read(buffer)
                         }
                     }
-                } else {
-                    val dir = File(target, entryName).canonicalFile
-                    if (!dir.path.startsWith(canonicalTarget + File.separator) && dir.path != canonicalTarget) {
-                        throw SecurityException("Zip entry '$entryName' attempts path traversal")
-                    }
-                    dir.mkdirs()
                 }
-                zis.closeEntry()
-                entry = zis.nextEntry
+                if (entry.size >= 0L && written != entry.size) {
+                    throw IllegalStateException(
+                        "Incomplete entry '$entryName': expected ${entry.size} bytes, wrote $written"
+                    )
+                }
             }
         }
     }
@@ -89,25 +98,11 @@ class DirectStrategy : ExtractionStrategy {
         withContext(Dispatchers.IO) { path.deleteRecursively() }
     }
 
-    override suspend fun sha256Files(paths: List<File>): List<String?> =
+    override suspend fun deleteFiles(paths: List<File>) {
         withContext(Dispatchers.IO) {
-            val digest = MessageDigest.getInstance("SHA-256")
-            paths.map { path ->
-                runCatching {
-                    if (!path.isFile) return@runCatching null
-                    digest.reset()
-                    FileInputStream(path).use { input ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var read = input.read(buffer)
-                        while (read > 0) {
-                            digest.update(buffer, 0, read)
-                            read = input.read(buffer)
-                        }
-                    }
-                    digest.digest().joinToString("") { "%02x".format(it) }
-                }.getOrNull()
-            }
+            paths.forEach { path -> runCatching { if (path.exists()) path.delete() } }
         }
+    }
 }
 
 class ShizukuStrategy(
@@ -137,12 +132,11 @@ class ShizukuStrategy(
         } ?: throw IllegalStateException("Shizuku delete timed out")
     }
 
-    override suspend fun sha256Files(paths: List<File>): List<String?> {
-        return withTimeoutOrNull(120_000L) {
+    override suspend fun deleteFiles(paths: List<File>) {
+        withTimeoutOrNull(60_000L) {
             val service = awaitService()
-            val result = service.sha256Files(paths.map { it.absolutePath }.toTypedArray())
-            result?.toList() ?: List(paths.size) { null }
-        } ?: throw IllegalStateException("Shizuku sha256 timed out")
+            paths.forEach { path -> runCatching { service.deleteFolder(path.absolutePath) } }
+        } ?: throw IllegalStateException("Shizuku delete timed out")
     }
 }
 
@@ -270,64 +264,36 @@ object YuyuEngine {
     suspend fun deleteFolder(path: File) =
         strategy().deleteFolder(path)
 
-    suspend fun sha256Files(paths: List<File>): List<String?> =
-        strategy().sha256Files(paths)
+    suspend fun deleteFiles(paths: List<File>) =
+        strategy().deleteFiles(paths)
 
-    fun hashZipEntries(zip: File): List<Pair<String, String>> {
-        if (!zip.isFile) return emptyList()
-        // Basic zip signature check
-        runCatching {
-            FileInputStream(zip).use { fis ->
-                val sig = ByteArray(4)
-                if (fis.read(sig) != 4) return emptyList()
-                if (!(sig[0] == 0x50.toByte() && sig[1] == 0x4B.toByte() && (sig[2] == 0x03.toByte() || sig[2] == 0x05.toByte() || sig[2] == 0x07.toByte()) && (sig[3] == 0x04.toByte() || sig[3] == 0x06.toByte() || sig[3] == 0x08.toByte()))) {
-                    return emptyList()
+    fun listZipEntries(zip: File): List<Pair<String, Long>> {
+        if (!zip.isFile || zip.length() <= 0L) return emptyList()
+        return runCatching {
+            ZipFile(zip).use { zf ->
+                val result = mutableListOf<Pair<String, Long>>()
+                val entries = zf.entries()
+                var count = 0
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    count++
+                    if (count > 10_000) break
+                    if (entry.isDirectory) continue
+                    result.add(entry.name to entry.size)
                 }
+                result
             }
-        }
-        val digest = MessageDigest.getInstance("SHA-256")
-        val result = mutableListOf<Pair<String, String>>()
-        val maxEntries = 10_000
-        var entries = 0
-        runCatching {
-            ZipInputStream(FileInputStream(zip)).use { zis ->
-                var entry: ZipEntry? = zis.nextEntry
-                while (entry != null) {
-                    entries++
-                    if (entries > maxEntries) break
-                    val entryName = entry.name
-                    if (entryName.contains("..") || entryName.startsWith("/") || entryName.startsWith("\\") || File(entryName).isAbsolute) {
-                        zis.closeEntry()
-                        entry = zis.nextEntry
-                        continue
-                    }
-                    if (!entry.isDirectory) {
-                        digest.reset()
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var read = zis.read(buffer)
-                        while (read > 0) {
-                            digest.update(buffer, 0, read)
-                            read = zis.read(buffer)
-                        }
-                        result.add(entryName to digest.digest().joinToString("") { "%02x".format(it) })
-                    }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
-                }
-            }
-        }
-        return result
+        }.getOrDefault(emptyList())
     }
 
     suspend fun clearRepairMarkers(game: GameTarget) {
         val configDir = game.dataDir.parentFile ?: game.dataDir
-        listOf(
+        val markers = listOf(
             File(game.assetsDir.parentFile ?: game.dataDir, "config.ini"),
             File(configDir, "dragon2017/config.ini"),
             File(game.dataDir, "config.ini")
-        ).forEach { marker ->
-            if (marker.exists()) runCatching { strategy().deleteFolder(marker) }
-        }
+        ).filter { it.exists() }
+        if (markers.isNotEmpty()) runCatching { strategy().deleteFiles(markers) }
     }
 
     fun storageGranted(): Boolean {

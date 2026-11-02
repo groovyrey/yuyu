@@ -5,11 +5,8 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.Process
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.security.MessageDigest
-import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 
 /**
  * Runs inside the Shizuku (or root) server process with elevated privileges,
@@ -35,15 +32,24 @@ class UserService : Service() {
             }
 
             val canonicalTarget = runCatching { targetDir.canonicalPath }.getOrNull() ?: targetDir.absolutePath
-            val total = srcFile.length()
-            var processed = 0L
+            val maxEntries = 10_000
+            val maxTotalUncompressed = 512L * 1024 * 1024
 
             try {
-                ZipInputStream(FileInputStream(srcFile)).use { zis ->
-                    var entry: ZipEntry? = zis.nextEntry
-                    while (entry != null) {
-                        val current = entry
-                        val entryName = current.name
+                // ZipFile reads the central directory first, so a truncated or
+                // incomplete archive fails here instead of extracting a partial set.
+                ZipFile(srcFile).use { zf ->
+                    val archiveEntries = zf.entries()
+                    val totalEntries = zf.size().coerceAtLeast(1)
+                    var index = 0
+                    var totalUncompressed = 0L
+                    while (archiveEntries.hasMoreElements()) {
+                        val entry = archiveEntries.nextElement()
+                        index++
+                        if (index > maxEntries) {
+                            throw SecurityException("Too many zip entries")
+                        }
+                        val entryName = entry.name
                         // Prevent zip slip / path traversal
                         if (entryName.contains("..") || entryName.startsWith("/") || entryName.startsWith("\\") || File(entryName).isAbsolute) {
                             throw SecurityException("Illegal zip entry: $entryName")
@@ -52,26 +58,34 @@ class UserService : Service() {
                         if (!outFile.path.startsWith(canonicalTarget + File.separator) && outFile.path != canonicalTarget) {
                             throw SecurityException("Zip entry '$entryName' attempts path traversal")
                         }
-                        if (current.isDirectory) {
+                        if (entry.isDirectory) {
                             outFile.mkdirs()
                         } else {
                             outFile.parentFile?.mkdirs()
-                            FileOutputStream(outFile).use { out ->
-                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                                var read = zis.read(buffer)
-                                while (read > 0) {
-                                    out.write(buffer, 0, read)
-                                    processed += read
-                                    if (total > 0) {
-                                        val percent = ((processed * 100L) / total).toInt()
-                                        callback?.onProgress(percent, entryName)
+                            var written = 0L
+                            zf.getInputStream(entry).use { input ->
+                                FileOutputStream(outFile).use { out ->
+                                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                    var read = input.read(buffer)
+                                    while (read > 0) {
+                                        totalUncompressed += read
+                                        if (totalUncompressed > maxTotalUncompressed) {
+                                            throw SecurityException("Zip exceeds maximum uncompressed size")
+                                        }
+                                        out.write(buffer, 0, read)
+                                        written += read
+                                        read = input.read(buffer)
                                     }
-                                    read = zis.read(buffer)
                                 }
                             }
+                            if (entry.size >= 0L && written != entry.size) {
+                                throw IllegalStateException(
+                                    "Incomplete entry '$entryName': expected ${entry.size} bytes, wrote $written"
+                                )
+                            }
                         }
-                        zis.closeEntry()
-                        entry = zis.nextEntry
+                        val percent = ((index * 100L) / totalEntries).toInt().coerceIn(0, 100)
+                        callback?.onProgress(percent, entryName)
                     }
                 }
                 callback?.onComplete()
@@ -84,27 +98,6 @@ class UserService : Service() {
             return runCatching {
                 deleteRecursively(File(path))
             }.getOrDefault(false)
-        }
-
-        override fun sha256Files(paths: Array<out String>?): Array<String?>? {
-            if (paths == null) return null
-            val digest = MessageDigest.getInstance("SHA-256")
-            return paths.map { path ->
-                runCatching {
-                    val file = File(path)
-                    if (!file.isFile) return@runCatching null
-                    digest.reset()
-                    FileInputStream(file).use { input ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var read = input.read(buffer)
-                        while (read > 0) {
-                            digest.update(buffer, 0, read)
-                            read = input.read(buffer)
-                        }
-                    }
-                    digest.digest().joinToString("") { "%02x".format(it) }
-                }.getOrNull()
-            }.toTypedArray()
         }
 
         override fun destroy() {

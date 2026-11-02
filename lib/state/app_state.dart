@@ -12,31 +12,51 @@ import '../services/engine_service.dart';
 class OperationState {
   final bool running;
   final String message;
-  final int progress;
   final int done;
   final int total;
+  final int step;
+  final int stepTotal;
+  final String stepLabel;
+  final String activeKey;
 
   const OperationState({
     this.running = false,
     this.message = '',
-    this.progress = 0,
     this.done = 0,
     this.total = 0,
+    this.step = 0,
+    this.stepTotal = 0,
+    this.stepLabel = '',
+    this.activeKey = '',
   });
+
+  double get stepFraction =>
+      stepTotal <= 0 ? 0 : (step / stepTotal).clamp(0.0, 1.0);
+
+  double get overallFraction {
+    if (total <= 0) return stepFraction;
+    return ((done + stepFraction) / total).clamp(0.0, 1.0);
+  }
 
   OperationState copyWith({
     bool? running,
     String? message,
-    int? progress,
     int? done,
     int? total,
+    int? step,
+    int? stepTotal,
+    String? stepLabel,
+    String? activeKey,
   }) =>
       OperationState(
         running: running ?? this.running,
         message: message ?? this.message,
-        progress: progress ?? this.progress,
         done: done ?? this.done,
         total: total ?? this.total,
+        step: step ?? this.step,
+        stepTotal: stepTotal ?? this.stepTotal,
+        stepLabel: stepLabel ?? this.stepLabel,
+        activeKey: activeKey ?? this.activeKey,
       );
 }
 
@@ -48,7 +68,6 @@ class AppState extends ChangeNotifier {
   List<Favorite> _favorites = [];
   List<InjectedSkin> _manifest = [];
   List<History> _history = [];
-  Set<String> _injected = {};
   Set<String> _injectedCosmetics = {};
 
   final Map<CosmeticCategory, List<CosmeticItem>> _cosmetics = {};
@@ -70,7 +89,7 @@ class AppState extends ChangeNotifier {
   bool get loading => _loading;
   String? get loadError => _loadError;
   List<Favorite> get favorites => _favorites;
-  Set<String> get injected => _injected;
+  int get restoreTargetCount => _restoreTargets().length;
   GameTarget? get game => _game;
   bool get storageGranted => _storageGranted;
   String get shizukuState => _shizukuState;
@@ -102,7 +121,6 @@ class AppState extends ChangeNotifier {
 
     _loadHeroes();
     await refreshEnv();
-    refreshInjectedStatus();
     cleanupCache();
 
     _resumeSub = EngineService.onResume.listen((_) => refreshEnv());
@@ -277,87 +295,141 @@ class AppState extends ChangeNotifier {
     c?.complete();
   }
 
-  Future<void> _injectFavorite(Favorite fav) async {
+  static const int _injectStepCount = 5;
+
+  String _skinKey(Favorite fav) => '${fav.heroId}:${fav.skinName}';
+
+  bool isActiveSkin(int heroId, String skinName) =>
+      _manifest.any((m) => m.heroId == heroId && m.skinName == skinName);
+
+  Future<void> _injectFavorite(
+    Favorite fav, {
+    required int index,
+    required int count,
+  }) async {
+    final key = _skinKey(fav);
+    void report(int step, String label) {
+      _operation = OperationState(
+        running: true,
+        message: 'Injecting ${fav.skinName}...',
+        done: index,
+        total: count,
+        step: step,
+        stepTotal: _injectStepCount,
+        stepLabel: label,
+        activeKey: key,
+      );
+      notifyListeners();
+    }
+
+    report(0, 'Preparing');
     if (fav.skinSc.isEmpty) throw 'No download URL for ${fav.skinName}';
     final game = await EngineService.findGame();
     if (game == null) throw 'Mobile Legends is not installed';
 
     final zip = await _cachedZip(fav);
-    final needDownload = !zip.existsSync() || zip.lengthSync() == 0;
+    final entries = <String>[];
+    var extractionStarted = false;
 
-    if (needDownload) {
-      final dl = await EngineService.downloadFile(fav.skinSc, zip.path);
-      if (!dl.ok) {
+    try {
+      var zipEntries = zip.existsSync()
+          ? await EngineService.listZipEntries(zip.path)
+          : const <(String, int)>[];
+      report(1, zipEntries.isEmpty ? 'Downloading skin' : 'Using cached skin');
+      if (zipEntries.isEmpty) {
         await _deleteCachedZip(zip);
-        throw 'Download failed for ${fav.skinName}'
-            '${dl.error != null ? ': ${dl.error}' : ''}';
-      }
-      if (!zip.existsSync() || zip.lengthSync() == 0) {
-        await _deleteCachedZip(zip);
-        throw 'Download produced empty file for ${fav.skinName}';
-      }
-      // Validate zip signature
-      try {
-        final raf = await zip.open();
-        final sig = await raf.read(4);
-        await raf.close();
-        if (!(sig.length == 4 && sig[0] == 0x50 && sig[1] == 0x4B)) {
-          await _deleteCachedZip(zip);
-          throw 'Downloaded file is not a valid zip for ${fav.skinName}';
+        final dl = await EngineService.downloadFile(fav.skinSc, zip.path);
+        if (!dl.ok) {
+          throw 'Download failed for ${fav.skinName}'
+              '${dl.error != null ? ': ${dl.error}' : ''}';
         }
-      } catch (e) {
-        if (e.toString().contains('valid zip')) rethrow;
-        await _deleteCachedZip(zip);
-        throw 'Invalid zip file for ${fav.skinName}';
+        if (!zip.existsSync() || zip.lengthSync() == 0) {
+          throw 'Download produced empty file for ${fav.skinName}';
+        }
+        zipEntries = await EngineService.listZipEntries(zip.path);
       }
-    }
 
-    final uz = await EngineService.unzip(zip.path, game.assetsDir);
-    if (!uz.ok) {
-      await _deleteCachedZip(zip);
-      throw 'Extraction failed for ${fav.skinName}'
-          '${uz.error != null ? ': ${uz.error}' : ''}';
-    }
+      report(2, 'Validating archive');
+      if (zipEntries.isEmpty) {
+        throw 'Downloaded file is not a valid zip for ${fav.skinName}';
+      }
+      entries.addAll(zipEntries.map((e) => e.$1));
 
-    final injected = await _buildInjectedSkin(fav, zip, game);
-    _recordInjected(injected);
-    _addHistory(fav);
-  }
+      report(3, 'Extracting files');
+      extractionStarted = true;
+      final uz = await EngineService.unzip(zip.path, game.assetsDir);
+      if (!uz.ok) {
+        throw 'Extraction failed for ${fav.skinName}'
+            '${uz.error != null ? ': ${uz.error}' : ''}';
+      }
 
-  Future<InjectedSkin> _buildInjectedSkin(
-      Favorite fav, File zip, GameTarget game) async {
-    final entries = await EngineService.hashZipEntries(zip.path);
-    if (entries.isEmpty) {
-      return InjectedSkin(
+      report(4, 'Cleaning up old files');
+      await _removeStaleFiles(game, fav.heroId, entries);
+
+      _recordInjected(InjectedSkin(
         heroName: fav.heroName,
         heroId: fav.heroId,
         skinName: fav.skinName,
         skinImage: fav.skinImage,
         skinSc: fav.skinSc,
-      );
-    }
-    final files = <InjectedFile>[];
-    for (final (name, _) in entries) {
-      final hashes =
-          await EngineService.sha256Files(['${game.assetsDir}/$name']);
-      final h = hashes.isNotEmpty ? hashes.first : null;
-      if (h != null && h.isNotEmpty) {
-        files.add(InjectedFile(path: name, sha256: h));
+        files: entries,
+      ));
+      _addHistory(fav);
+    } catch (e) {
+      if (extractionStarted) {
+        await _deleteAssetFiles(game, entries);
       }
+      await _deleteCachedZip(zip);
+      rethrow;
     }
-    return InjectedSkin(
-      heroName: fav.heroName,
-      heroId: fav.heroId,
-      skinName: fav.skinName,
-      skinImage: fav.skinImage,
-      skinSc: fav.skinSc,
-      files: files,
+  }
+
+  Future<void> _removeStaleFiles(
+      GameTarget game, int heroId, List<String> newFiles) async {
+    final next = newFiles.toSet();
+    final previous = _manifest
+        .where((m) => m.heroId == heroId)
+        .expand((m) => m.files)
+        .toSet();
+    final referencedByOtherHeroes = _manifest
+        .where((m) => m.heroId != heroId)
+        .expand((m) => m.files)
+        .toSet();
+    final stale = previous
+        .where((p) => !next.contains(p) && !referencedByOtherHeroes.contains(p))
+        .toList();
+    if (stale.isEmpty) return;
+    await _deleteAssetFiles(game, stale);
+  }
+
+  Future<void> _deleteAssetFiles(GameTarget game, Iterable<String> paths) async {
+    final list = paths.map((p) => '${game.assetsDir}/$p').toList();
+    if (list.isEmpty) return;
+    try {
+      await EngineService.deleteFiles(list);
+    } catch (_) {}
+  }
+
+  void _finishSingle(String message) {
+    _operation = OperationState(
+      running: false,
+      message: message,
+      done: 1,
+      total: 1,
+      step: _injectStepCount,
+      stepTotal: _injectStepCount,
+      stepLabel: 'Done',
     );
   }
 
   Future<void> injectSkin(HeroEntry hero, String skinName, String image, String sc) async {
     if (_operation.running) return;
-    _operation = OperationState(running: true, message: 'Injecting $skinName...', total: 1);
+    _operation = OperationState(
+      running: true,
+      message: 'Injecting $skinName...',
+      total: 1,
+      stepTotal: _injectStepCount,
+    );
     notifyListeners();
     try {
       await _acquireOpLock();
@@ -368,14 +440,8 @@ class AppState extends ChangeNotifier {
           skinName: skinName,
           skinImage: image,
           skinSc: sc,
-        ));
-        _replaceInjectedKey(hero.heroInfo.id, '${hero.heroInfo.id}:$skinName');
-        _operation = OperationState(
-          running: false,
-          message: 'Injected: $skinName',
-          done: 1,
-          total: 1,
-        );
+        ), index: 0, count: 1);
+        _finishSingle('Injected: $skinName');
       } finally {
         _releaseOpLock();
       }
@@ -389,7 +455,12 @@ class AppState extends ChangeNotifier {
       HeroEntry hero, String fromSkin, String toSkin, String sc) async {
     if (_operation.running) return;
     final label = '$fromSkin → $toSkin';
-    _operation = OperationState(running: true, message: 'Injecting $label...', total: 1);
+    _operation = OperationState(
+      running: true,
+      message: 'Injecting $label...',
+      total: 1,
+      stepTotal: _injectStepCount,
+    );
     notifyListeners();
     try {
       await _acquireOpLock();
@@ -400,14 +471,8 @@ class AppState extends ChangeNotifier {
           skinName: label,
           skinImage: '',
           skinSc: sc,
-        ));
-        _replaceInjectedKey(hero.heroInfo.id, '${hero.heroInfo.id}:$label');
-        _operation = OperationState(
-          running: false,
-          message: 'Injected: $label',
-          done: 1,
-          total: 1,
-        );
+        ), index: 0, count: 1);
+        _finishSingle('Injected: $label');
       } finally {
         _releaseOpLock();
       }
@@ -423,19 +488,14 @@ class AppState extends ChangeNotifier {
       running: true,
       message: 'Injecting ${fav.skinName}...',
       total: 1,
+      stepTotal: _injectStepCount,
     );
     notifyListeners();
     try {
       await _acquireOpLock();
       try {
-        await _injectFavorite(fav);
-        _replaceInjectedKey(fav.heroId, '${fav.heroId}:${fav.skinName}');
-        _operation = OperationState(
-          running: false,
-          message: 'Injected: ${fav.skinName}',
-          done: 1,
-          total: 1,
-        );
+        await _injectFavorite(fav, index: 0, count: 1);
+        _finishSingle('Injected: ${fav.skinName}');
       } finally {
         _releaseOpLock();
       }
@@ -447,30 +507,46 @@ class AppState extends ChangeNotifier {
 
   Future<void> injectAllFavorites() async {
     if (_operation.running || _favorites.isEmpty) return;
-    final list = List<Favorite>.from(_favorites);
-    _operation = OperationState(running: true, message: 'Injecting favorites...', total: list.length);
+    final all = List<Favorite>.from(_favorites);
+    final pending =
+        all.where((f) => !isActiveSkin(f.heroId, f.skinName)).toList();
+    final skipped = all.length - pending.length;
+
+    if (pending.isEmpty) {
+      _operation = OperationState(
+        running: false,
+        message: 'All ${all.length} favorites are already injected',
+        done: all.length,
+        total: all.length,
+        step: _injectStepCount,
+        stepTotal: _injectStepCount,
+        stepLabel: 'Done',
+      );
+      notifyListeners();
+      return;
+    }
+
+    _operation = OperationState(
+      running: true,
+      message: 'Injecting favorites...',
+      total: pending.length,
+      stepTotal: _injectStepCount,
+    );
     notifyListeners();
 
     await _acquireOpLock();
     try {
-      var done = 0;
       final failures = <String>[];
-      for (final fav in list) {
-        _operation = _operation.copyWith(
-          done: done,
-          message: 'Injecting ${fav.skinName}',
-          progress: (done * 100) ~/ list.length,
-        );
-        notifyListeners();
+      for (var i = 0; i < pending.length; i++) {
+        final fav = pending[i];
         try {
-          await _injectFavorite(fav);
-          _replaceInjectedKey(fav.heroId, '${fav.heroId}:${fav.skinName}');
+          await _injectFavorite(fav, index: i, count: pending.length);
         } catch (e) {
           failures.add('${fav.skinName}: ${_msg(e)}');
         }
-        done++;
       }
 
+      final ok = pending.length - failures.length;
       final maxShow = 8;
       final shown = failures.take(maxShow).join('\n');
       final extra = failures.length > maxShow
@@ -478,11 +554,13 @@ class AppState extends ChangeNotifier {
           : '';
       _operation = OperationState(
         running: false,
-        message:
-            'Inject completed: ${list.length - failures.length} ok, ${failures.length} failed'
+        message: 'Injected $ok, skipped $skipped, failed ${failures.length}'
             '${failures.isNotEmpty ? '\n$shown$extra' : ''}',
-        done: list.length - failures.length,
-        total: list.length,
+        done: ok,
+        total: pending.length,
+        step: _injectStepCount,
+        stepTotal: _injectStepCount,
+        stepLabel: 'Done',
       );
     } finally {
       _releaseOpLock();
@@ -490,47 +568,55 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> advancedRestoreAllFavorites() async {
-    if (_operation.running || _favorites.isEmpty) return;
-    final list = List<Favorite>.from(_favorites);
-    _operation = OperationState(running: true, message: 'Advanced restore running...', total: list.length);
+  Future<void> advancedRestore() async {
+    if (_operation.running) return;
+    final targets = _restoreTargets();
+    if (targets.isEmpty) {
+      _operation = const OperationState(
+        running: false,
+        message: 'No injected skins to restore',
+      );
+      notifyListeners();
+      return;
+    }
+    final game = await EngineService.findGame();
+    if (game == null) {
+      _operation = const OperationState(
+        running: false,
+        message: 'Failed: Mobile Legends is not installed',
+      );
+      notifyListeners();
+      return;
+    }
+
+    _operation = OperationState(
+      running: true,
+      message: 'Advanced restore running...',
+      total: targets.length,
+      stepTotal: _injectStepCount,
+    );
     notifyListeners();
 
     await _acquireOpLock();
     try {
-      var done = 0;
+      await EngineService.clearRepairMarkers(game.assetsDir, game.dataDir);
       var failures = 0;
-      for (final fav in list) {
-        _operation = _operation.copyWith(
-          done: done,
-          message: 'Restoring ${fav.skinName}',
-          progress: (done * 100) ~/ list.length,
-        );
-        notifyListeners();
+      for (var i = 0; i < targets.length; i++) {
         try {
-          final game = await EngineService.findGame();
-          if (game == null) throw 'Mobile Legends is not installed';
-          await EngineService.clearRepairMarkers(game.assetsDir, game.dataDir);
-          final zip = await _cachedZip(fav);
-          if (zip.existsSync() && fav.skinSc.isNotEmpty) {
-            final uz = await EngineService.unzip(zip.path, game.assetsDir);
-            if (!uz.ok) {
-              await _deleteCachedZip(zip);
-              throw 'Extraction failed: ${uz.error}';
-            }
-          }
-          _addHistory(fav);
+          await _injectFavorite(targets[i], index: i, count: targets.length);
         } catch (_) {
           failures++;
         }
-        done++;
       }
-
       _operation = OperationState(
         running: false,
-        message: 'Advanced restore completed: ${list.length - failures} ok, $failures failed',
-        done: list.length - failures,
-        total: list.length,
+        message: 'Advanced restore completed: '
+            '${targets.length - failures} ok, $failures failed',
+        done: targets.length - failures,
+        total: targets.length,
+        step: _injectStepCount,
+        stepTotal: _injectStepCount,
+        stepLabel: 'Done',
       );
     } finally {
       _releaseOpLock();
@@ -538,67 +624,31 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> refreshInjectedStatus() async {
-    _injected = {};
-    notifyListeners();
-    final game = await EngineService.findGame();
-    if (game == null) return;
-
-    var manifest = List<InjectedSkin>.from(_manifest);
-    var backfilled = false;
-    for (var i = 0; i < manifest.length; i++) {
-      if (manifest[i].files.isNotEmpty) continue;
-      final rebuilt = await _backfillInjectedSkin(manifest[i]);
-      if (rebuilt != null) {
-        manifest[i] = rebuilt;
-        backfilled = true;
+  List<Favorite> _restoreTargets() {
+    final byHero = <int, Favorite>{};
+    for (final entry in _manifest) {
+      final match = _favorites.where(
+        (f) => f.heroId == entry.heroId && f.skinName == entry.skinName,
+      );
+      final fav = match.isNotEmpty
+          ? match.first
+          : Favorite(
+              heroName: entry.heroName,
+              heroId: entry.heroId,
+              skinName: entry.skinName,
+              skinImage: entry.skinImage,
+              skinSc: entry.skinSc,
+            );
+      if (fav.skinSc.isEmpty) continue;
+      byHero[entry.heroId] = fav;
+    }
+    if (byHero.isEmpty) {
+      for (final fav in _favorites) {
+        if (fav.skinSc.isEmpty) continue;
+        byHero.putIfAbsent(fav.heroId, () => fav);
       }
     }
-    if (backfilled) {
-      _manifest = manifest;
-      await _saveManifest();
-    }
-
-    final result = <String>{};
-    for (final entry in manifest) {
-      if (entry.files.isEmpty) continue;
-      final paths = entry.files.map((f) => '${game.assetsDir}/${f.path}').toList();
-      final hashes = await EngineService.sha256Files(paths);
-      var allMatch = true;
-      for (var i = 0; i < entry.files.length; i++) {
-        final current = i < hashes.length ? hashes[i] : null;
-        if (current == null ||
-            current.isEmpty ||
-            current.toLowerCase() != entry.files[i].sha256.toLowerCase()) {
-          allMatch = false;
-          break;
-        }
-      }
-      if (allMatch) result.add('${entry.heroId}:${entry.skinName}');
-    }
-    _injected = result;
-    notifyListeners();
-  }
-
-  Future<InjectedSkin?> _backfillInjectedSkin(InjectedSkin entry) async {
-    final zip = await _cachedZip(Favorite(
-      heroName: entry.heroName,
-      heroId: entry.heroId,
-      skinName: entry.skinName,
-      skinImage: entry.skinImage,
-      skinSc: entry.skinSc,
-    ));
-    if (!zip.existsSync()) return null;
-    final entries = await EngineService.hashZipEntries(zip.path);
-    if (entries.isEmpty) return null;
-    return InjectedSkin(
-      heroName: entry.heroName,
-      heroId: entry.heroId,
-      skinName: entry.skinName,
-      skinImage: entry.skinImage,
-      skinSc: entry.skinSc,
-      files: entries.map((e) => InjectedFile(path: e.$1, sha256: e.$2)).toList(),
-    );
+    return byHero.values.toList();
   }
 
   void _recordInjected(InjectedSkin injected) {
@@ -606,14 +656,8 @@ class AppState extends ChangeNotifier {
             .where((m) => m.heroId != injected.heroId)
             .toList() +
         [injected];
+    notifyListeners();
     _saveManifest();
-  }
-
-  void _replaceInjectedKey(int heroId, String key) {
-    _injected = {
-      ..._injected.where((k) => !k.startsWith('$heroId:')),
-      key,
-    };
   }
 
   Future<void> _saveManifest() async {

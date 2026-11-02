@@ -93,22 +93,22 @@ class EngineService {
     return result ?? false;
   }
 
-  static Future<List<String?>> sha256Files(List<String> paths) async {
-    if (paths.isEmpty) return [];
+  static Future<bool> deleteFiles(List<String> paths) async {
+    if (paths.isEmpty) return true;
     final result = await _channel
-        .invokeMethod<List<dynamic>>('sha256Files', {'paths': paths})
+        .invokeMethod<bool>('deleteFiles', {'paths': paths})
         .timeout(const Duration(minutes: 2));
-    return result?.map((e) => e as String?).toList() ?? List.filled(paths.length, null);
+    return result ?? false;
   }
 
-  static Future<List<(String, String)>> hashZipEntries(String path) async {
+  static Future<List<(String, int)>> listZipEntries(String path) async {
     final result = await _channel.invokeMethod<List<dynamic>>(
-      'hashZipEntries',
+      'listZipEntries',
       {'path': path},
     );
     return (result ?? const []).map((e) {
       final pair = e as List<dynamic>;
-      return (pair[0] as String, pair[1] as String);
+      return (pair[0] as String, (pair[1] as num).toInt());
     }).toList();
   }
 

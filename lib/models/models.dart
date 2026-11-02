@@ -242,27 +242,13 @@ class Favorite {
       };
 }
 
-class InjectedFile {
-  final String path;
-  final String sha256;
-
-  const InjectedFile({this.path = '', this.sha256 = ''});
-
-  factory InjectedFile.fromJson(Map<String, dynamic> json) => InjectedFile(
-        path: json['path'] as String? ?? '',
-        sha256: json['sha256'] as String? ?? '',
-      );
-
-  Map<String, dynamic> toJson() => {'path': path, 'sha256': sha256};
-}
-
 class InjectedSkin {
   final String heroName;
   final int heroId;
   final String skinName;
   final String skinImage;
   final String skinSc;
-  final List<InjectedFile> files;
+  final List<String> files;
 
   const InjectedSkin({
     this.heroName = '',
@@ -279,8 +265,12 @@ class InjectedSkin {
         skinName: json['skinName'] as String? ?? '',
         skinImage: json['skinImage'] as String? ?? '',
         skinSc: json['skinSc'] as String? ?? '',
+        // Older manifests stored {path, sha256} maps; accept both shapes.
         files: (json['files'] as List? ?? const [])
-            .map((e) => InjectedFile.fromJson(e as Map<String, dynamic>))
+            .map((e) => e is String
+                ? e
+                : (e as Map<String, dynamic>)['path'] as String? ?? '')
+            .where((e) => e.isNotEmpty)
             .toList(),
       );
 
@@ -290,7 +280,7 @@ class InjectedSkin {
         'skinName': skinName,
         'skinImage': skinImage,
         'skinSc': skinSc,
-        'files': files.map((f) => f.toJson()).toList(),
+        'files': files,
       };
 }
 
